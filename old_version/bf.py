@@ -20,7 +20,7 @@ ctk.set_default_color_theme("blue")  # themes: blue, dark-blue, green
 # ======================
 
 # Not: Bu kısım orijinal koddan korunmuştur.
-CSV_PATH = "libtrack_dataset_bounded_realistic_v2.csv"  # Kendi dosya adın buysa dokunma
+CSV_PATH = "../libtrack_dataset_bounded_realistic_v2.csv"  # Kendi dosya adın buysa dokunma
 
 try:
     df = pd.read_csv(CSV_PATH)
