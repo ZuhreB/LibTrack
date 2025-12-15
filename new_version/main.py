@@ -9,7 +9,7 @@ if __name__ == "__main__":
         "host": "localhost",
         "user": "root",
         "password": "zuhre060",
-        "database": "yolo_db"
+        "database": "library_db"
     }
 
     print("Uygulama başlatılıyor...")

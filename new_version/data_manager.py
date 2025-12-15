@@ -3,11 +3,9 @@ from tkinter import messagebox
 from datetime import datetime
 try:
     import mysql.connector
-
     HAS_MYSQL_CONNECTOR = True
 except ImportError:
     HAS_MYSQL_CONNECTOR = False
-
 
 class LibraryDataManager:
     def __init__(self, csv_path, db_config):
@@ -20,16 +18,13 @@ class LibraryDataManager:
         self.load_csv_data()
 
     def load_csv_data(self):
-
         try:
             self.df = pd.read_csv(self.csv_path)
         except FileNotFoundError:
             messagebox.showerror("Hata", f"{self.csv_path} dosyası bulunamadı.")
             exit()
 
-        # Tarih formatlama ve temizleme
         self.df["datetime"] = pd.to_datetime(self.df["date"] + " " + self.df["time"])
-
         self.hourly_data = self.df[self.df["saatlik_ortalama_doluluk"].notnull()].copy()
         self.hourly_data["saatlik_ortalama_doluluk"] = self.hourly_data["saatlik_ortalama_doluluk"].astype(float)
         self.hourly_data["date"] = pd.to_datetime(self.hourly_data["date"])
@@ -40,30 +35,43 @@ class LibraryDataManager:
         self.max_date = self.hourly_data["date"].max().date()
 
     def fetch_live_occupancy(self):
-
+        """
+        Veritabanından her bir kameranın EN SON gönderdiği veriyi çeker.
+        Dönüş formatı (Örnek): {'0': 1, 'http://...': 0}
+        """
         if not HAS_MYSQL_CONNECTOR:
-            return "Bağlantı Hatası (Kütüphane Yok)"
+            return "Bağlantı Hatası"
 
         try:
             connection = mysql.connector.connect(**self.db_config)
             cursor = connection.cursor()
 
+            # Bu sorgu: Her bir camera_id grubu için en yüksek ID'ye (en son kayda) sahip satırı bulur.
             query = """
-                SELECT person_count 
-                FROM person_logs 
-                ORDER BY record_date DESC 
-                LIMIT 1
+                SELECT camera_id, person_count
+                FROM person_logs
+                WHERE id IN (
+                    SELECT MAX(id)
+                    FROM person_logs
+                    GROUP BY camera_id
+                )
             """
             cursor.execute(query)
-            result = cursor.fetchone()
+            results = cursor.fetchall() # Liste döner: [('0', 1), ('http://...', 0)]
 
             cursor.close()
             connection.close()
 
-            if result and result[0] is not None:
-                return float(result[0])
+            # Listeyi sözlüğe çeviriyoruz: {'0': 1, 'http://...': 0}
+            occupancy_dict = {}
+            if results:
+                for row in results:
+                    cam_id = str(row[0])
+                    count = int(row[1])
+                    occupancy_dict[cam_id] = count
+                return occupancy_dict
             else:
-                return "Veri Yok"
+                return {} # Veri yoksa boş sözlük
 
         except mysql.connector.Error as err:
             print(f"Veritabanı Hatası: {err}")

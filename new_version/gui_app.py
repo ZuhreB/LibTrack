@@ -2,7 +2,9 @@ import pandas as pd
 import tkinter as tk
 from tkinter import ttk, messagebox
 import customtkinter as ctk
+import threading
 from ai_assistant import LibraryChatbot
+from config import GOOGLE_API_KEY
 
 try:
     from tkcalendar import DateEntry
@@ -26,28 +28,40 @@ class LibTrackApp(ctk.CTk):
         self.forecaster = forecasting_engine
 
         self.title("LibTrack AI - Kütüphane Doluluk Tahmini")
-        self.geometry("1000x750")
+        self.geometry("1100x800")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        # Görsel harita için ışık listeleri (Masa A ve Masa B ayrı)
+        self.lights_masa_a = []
+        self.lights_masa_b = []
+
+        # Chat penceresinin açık/kapalı durumu
+        self.is_chat_open = False
+
         self._init_ui()
+
+        # Canlı veriyi başlat
         self.update_live_occupancy(initial_run=True)
+
+        # Prophet'i başlat (Artık arayüzü dondurmayacak)
         self.initial_prophet_run()
 
     def _init_ui(self):
+        # --- ANA İÇERİK ---
         self.scrollable_main_frame = ctk.CTkScrollableFrame(self)
         self.scrollable_main_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         self.scrollable_main_frame.grid_columnconfigure(0, weight=1)
 
-        #Başlık
+        # Başlık
         title_lbl = ctk.CTkLabel(self.scrollable_main_frame, text="Kütüphane Doluluk Tahmin Motoru",
                                  font=ctk.CTkFont(size=24, weight="bold"))
         title_lbl.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
 
-        #Databaseden gelen veriler burda gözükçek kütüphanede anlık şu kadar kişi gibi
+        # Canlı Veri ve Harita Bölümü
         self._setup_live_data_section()
 
-        # 3. Sekmeler
+        # Sekmeler
         self.nb = ttk.Notebook(self.scrollable_main_frame)
         style = ttk.Style()
         style.theme_use("default")
@@ -67,35 +81,146 @@ class LibTrackApp(ctk.CTk):
         self.nb.add(self.f_prophet, text=" 📊 Haftalık Genel Tahmin ")
         self.setup_prophet_tab(self.f_prophet)
 
-        self.f_chat = ctk.CTkFrame(self.nb)
-        self.nb.add(self.f_chat, text=" 💬 AI Asistan ")
+        # --- FLOATING CHAT (YÜZEN SOHBET) ---
+        self._setup_floating_chat()
 
-        # Chatbot entegrasyonu
-        MY_API_KEY = "AIzaSyBdvt0Hs5fyZPR3y_UlW283xqMuMX8TXM4"
+    def _setup_floating_chat(self):
+        self.chat_window = ctk.CTkFrame(self, width=350, height=500, corner_radius=15,
+                                        fg_color=("white", "gray20"), border_width=2, border_color="gray")
+
+        self.chat_window.grid_columnconfigure(0, weight=1)
+        self.chat_window.grid_rowconfigure(1, weight=1)
+
+        # Header
+        header_frame = ctk.CTkFrame(self.chat_window, height=40, corner_radius=10, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+
+        lbl_title = ctk.CTkLabel(header_frame, text="💬 AI Asistan", font=("Arial", 14, "bold"))
+        lbl_title.pack(side="left", padx=10)
+
+        btn_close = ctk.CTkButton(header_frame, text="✕", width=30, height=30,
+                                  fg_color="transparent", text_color="red", hover_color="gray90",
+                                  font=("Arial", 14, "bold"),
+                                  command=self.toggle_chat)
+        btn_close.pack(side="right", padx=5)
+
+        # Content
+        self.chat_content_frame = ctk.CTkFrame(self.chat_window, fg_color="transparent")
+        self.chat_content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
+
+        # LibraryChatbot Başlat
         self.chatbot = LibraryChatbot(
-            parent_frame=self.f_chat,
-            api_key=MY_API_KEY,
+            parent_frame=self.chat_content_frame,
+            api_key=GOOGLE_API_KEY,
             db_config=self.data_manager.db_config,
-            capacity=self.forecaster.capacity
+            capacity=self.forecaster.capacity,
+            data_manager=self.data_manager,  # Data manager eklendi
+            forecaster=self.forecaster  # Forecaster eklendi
         )
+
+        # Toggle Button
+        self.btn_chat_toggle = ctk.CTkButton(
+            self,
+            text="💬",
+            width=60,
+            height=60,
+            corner_radius=30,
+            font=("Arial", 30),
+            fg_color="#3B8ED0",
+            hover_color="#36719F",
+            command=self.toggle_chat
+        )
+        self.btn_chat_toggle.place(relx=0.98, rely=0.98, anchor="se")
+
+    def toggle_chat(self):
+        if self.is_chat_open:
+            self.chat_window.place_forget()
+            self.btn_chat_toggle.configure(text="💬")
+        else:
+            self.chat_window.place(relx=0.98, rely=0.90, anchor="se")
+            self.btn_chat_toggle.configure(text="🔽")
+            self.chat_window.lift()
+        self.is_chat_open = not self.is_chat_open
 
     def _setup_live_data_section(self):
         self.live_data_frame = ctk.CTkFrame(self.scrollable_main_frame, fg_color="transparent")
         self.live_data_frame.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
+
         self.live_data_frame.grid_columnconfigure(0, weight=1)
         self.live_data_frame.grid_columnconfigure(1, weight=0)
+        self.live_data_frame.grid_columnconfigure(2, weight=0)
 
         self.card_live = self.create_result_card(self.live_data_frame, "🔴 ANLIK DOLULUK (Canlı DB)", "DB Bağlanıyor...",
                                                  0, start_row=0)
 
+        map_container = ctk.CTkFrame(self.live_data_frame, fg_color="white", corner_radius=10)
+        map_container.grid(row=0, column=1, padx=10, pady=10, sticky="ns")
+
+        self.map_canvas = tk.Canvas(map_container, width=220, height=100, bg="white", highlightthickness=0)
+        self.map_canvas.pack(padx=5, pady=5)
+        self._draw_seat_map()
+
         self.btn_live_update = ctk.CTkButton(
             self.live_data_frame,
-            text="🔄 Canlı Veriyi Güncelle",
+            text="🔄 Canlı Veriyi\nGüncelle",
             command=self.update_live_occupancy,
-            height=50,
-            font=ctk.CTkFont(size=15, weight="bold")
+            height=80,
+            font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.btn_live_update.grid(row=0, column=1, padx=10, pady=5, sticky="e")
+        self.btn_live_update.grid(row=0, column=2, padx=10, pady=5, sticky="e")
+
+    def _draw_seat_map(self):
+        """Masa A ve Masa B'yi ayrı ayrı çizer ve HER MASA İÇİN TEK BİR NOKTA (Işık) koyar."""
+        # Haritayı temizle
+        self.map_canvas.delete("all")
+        self.lights_masa_a = []
+        self.lights_masa_b = []
+
+        # --- MASA A (Kamera 0) ---
+        self.map_canvas.create_rectangle(20, 30, 90, 80, fill="#d0d0d0", outline="gray")
+        self.map_canvas.create_text(55, 55, text="Masa A\n(Cam 0)", font=("Arial", 9, "bold"), fill="gray")
+
+        # Masa A için TEK Işık (Üst Ortada)
+        x_a, y_a = 55, 20
+        # Biraz daha büyük (radius=8) tek bir nokta çiziyoruz
+        oval_id_a = self.map_canvas.create_oval(x_a - 8, y_a - 8, x_a + 8, y_a + 8, fill="gray", outline="black")
+        self.lights_masa_a.append(oval_id_a)
+
+        # --- MASA B (IP Kamera) ---
+        self.map_canvas.create_rectangle(130, 30, 200, 80, fill="#d0d0d0", outline="gray")
+        self.map_canvas.create_text(165, 55, text="Masa B\n(IP Cam)", font=("Arial", 9, "bold"), fill="gray")
+
+        # Masa B için TEK Işık (Üst Ortada)
+        x_b, y_b = 165, 20
+        # Biraz daha büyük (radius=8) tek bir nokta çiziyoruz
+        oval_id_b = self.map_canvas.create_oval(x_b - 8, y_b - 8, x_b + 8, y_b + 8, fill="gray", outline="black")
+        self.lights_masa_b.append(oval_id_b)
+
+    def _update_map_visuals(self, occupancy_data):
+        """
+        occupancy_data: {'0': 1, 'http://...': 0} gibi bir sözlük gelir.
+        Buna göre masa renklerini günceller.
+        """
+        # 1. Masa A (Kamera "0" kontrolü)
+        count_a = occupancy_data.get('0', 0)  # Eğer '0' yoksa 0 varsay
+        # Doluysa (>0) Kırmızı, Boşsa Yeşil
+        color_a = "red" if count_a > 0 else "#00ff00"
+
+        for light_id in self.lights_masa_a:
+            self.map_canvas.itemconfig(light_id, fill=color_a)
+
+        # 2. Masa B (Diğer tüm kameralar - IP Kamera)
+        # '0' olmayan herhangi bir key varsa onu Masa B kabul ediyoruz
+        count_b = 0
+        for key, val in occupancy_data.items():
+            if key != '0':
+                count_b = val
+                break  # İlk bulduğu harici kamerayı alır
+
+        color_b = "red" if count_b > 0 else "#00ff00"
+
+        for light_id in self.lights_masa_b:
+            self.map_canvas.itemconfig(light_id, fill=color_b)
 
     def create_result_card(self, parent, title, value, col, start_row=0):
         card = ctk.CTkFrame(parent, fg_color="white")
@@ -109,30 +234,47 @@ class LibTrackApp(ctk.CTk):
         return value_lbl
 
     def update_live_occupancy(self, initial_run=False):
-        self.card_live.configure(text_color="gray", text="Yükleniyor...")
-        self.update_idletasks()
+        # Canlı veriyi de thread içine alabiliriz ama genellikle hızlıdır.
+        # Yine de UI'ı bloklamaması için 'threading' içine alalım.
+        threading.Thread(target=self._live_occupancy_worker, args=(initial_run,), daemon=True).start()
 
-        # DataManager üzerinden veriyi çek
-        latest_occupancy = self.data_manager.fetch_live_occupancy()
-        capacity = self.forecaster.capacity
+    def _live_occupancy_worker(self, initial_run):
+        # Bu fonksiyon arka planda çalışır
+        if not initial_run:
+            self.after(0, lambda: self.card_live.configure(text_color="gray", text="Yükleniyor..."))
 
-        if isinstance(latest_occupancy, (float, int)):
-            latest_occupancy = round(latest_occupancy)
-            perc = 100 * latest_occupancy / capacity
-            self.card_live.configure(text_color="green", text=f"{latest_occupancy} Kişi ({perc:.1f}%)")
+        # Sözlük döner: {'0': 1, 'http://...': 0}
+        occupancy_data = self.data_manager.fetch_live_occupancy()
+
+        # UI Güncellemesini ana thread'e geri yolla
+        self.after(0, lambda: self._update_live_ui(occupancy_data, initial_run))
+
+    def _update_live_ui(self, occupancy_data, initial_run):
+        if isinstance(occupancy_data, dict):
+            # Toplam sayıyı hesapla
+            total_count = sum(occupancy_data.values())
+            capacity = self.forecaster.capacity
+            perc = 100 * total_count / capacity if capacity > 0 else 0
+
+            self.card_live.configure(text_color="black", text=f"{total_count} Kişi ({perc:.1f}%)")
+
+            # Harita renklerini güncelle
+            self._update_map_visuals(occupancy_data)
+
             if not initial_run:
-                messagebox.showinfo("Başarılı", f"Canlı doluluk: {latest_occupancy} kişi.")
+                masa_a_val = occupancy_data.get('0', 0)
+                masa_b_val = sum(v for k, v in occupancy_data.items() if k != '0')
+                messagebox.showinfo("Başarılı",
+                                    f"Canlı doluluk güncellendi.\nMasa A: {masa_a_val}\nMasa B: {masa_b_val}")
         else:
-            self.card_live.configure(text_color="red", text=str(latest_occupancy))
-            if not initial_run:
-                pass
-
+            # Hata mesajı string olarak geldiyse
+            self.card_live.configure(text_color="red", text="Veri Yok")
+            print(f"Hata detayı: {occupancy_data}")
 
     def setup_slot_prediction_tab(self, parent_frame):
         parent_frame.grid_columnconfigure(0, weight=1)
         parent_frame.grid_rowconfigure(3, weight=1)
 
-        # Kontroller
         control_frame = ctk.CTkFrame(parent_frame)
         control_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
         control_frame.grid_columnconfigure((0, 2), weight=1)
@@ -140,7 +282,6 @@ class LibTrackApp(ctk.CTk):
         input_subframe = ctk.CTkFrame(control_frame, fg_color="transparent")
         input_subframe.grid(row=0, column=0, rowspan=2, padx=(10, 20), pady=10, sticky="nsw")
 
-        # Tarih Seçimi
         ctk.CTkLabel(input_subframe, text="1. Tahmin Tarihi:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         if HAS_TKCALENDAR:
             self.date_entry_frame = ctk.CTkFrame(input_subframe, fg_color="transparent", width=150)
@@ -156,26 +297,22 @@ class LibTrackApp(ctk.CTk):
             self.date_entry.insert(0, "2025-12-25")
             self.date_entry.grid(row=0, column=1, padx=10, pady=5, sticky="w")
 
-        # Slot Seçimi
         ctk.CTkLabel(input_subframe, text="2. Saat Slotu:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
         slots = [f"{h:02d}:00-{h + 1:02d}:00" for h in range(8, 23)]
         self.slot_combo = ctk.CTkComboBox(input_subframe, values=slots, width=150, state="readonly")
         self.slot_combo.set(slots[4])
         self.slot_combo.grid(row=1, column=1, padx=10, pady=5, sticky="w")
 
-        # Sınav Modu
         self.exam_var = tk.IntVar(value=0)
         self.exam_check = ctk.CTkCheckBox(
             input_subframe, text="3. Sınav Dönemi Deseni Kullan", variable=self.exam_var, onvalue=1, offvalue=0
         )
         self.exam_check.grid(row=2, column=0, columnspan=2, padx=10, pady=(5, 10), sticky="w")
 
-        # Buton
         self.btn = ctk.CTkButton(control_frame, text="🚀 Tek Slot Tahminini Çalıştır", command=self.make_slot_forecast,
                                  font=ctk.CTkFont(size=15, weight="bold"), height=50)
         self.btn.grid(row=0, column=1, rowspan=2, padx=20, pady=10, sticky="nsew")
 
-        # Sonuç Kartları
         self.result_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
         self.result_frame.grid(row=1, column=0, padx=20, pady=(10, 10), sticky="ew")
         self.result_frame.grid_columnconfigure((0, 1, 2), weight=1)
@@ -189,7 +326,6 @@ class LibTrackApp(ctk.CTk):
         self.card_perc = self.create_result_card(self.result_frame, "📈 Doluluk Oranı", "N/A", 1, start_row=1)
         self.card_interval = self.create_result_card(self.result_frame, "🔒 Güven Aralığı (~95%)", "N/A", 2, start_row=1)
 
-        # Detaylar
         self.detail_frame = ctk.CTkFrame(parent_frame)
         self.detail_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="nsew")
         self.detail_frame.grid_columnconfigure(0, weight=1)
@@ -204,14 +340,15 @@ class LibTrackApp(ctk.CTk):
         self.result_text.configure(state="disabled")
 
     def make_slot_forecast(self):
+        # Bu işlem genelde hızlıdır (pandas işlemi), thread'e gerek yok ama
+        # yine de "Hesaplanıyor" yazısını görmek için
         self.result_text.configure(state="normal")
         self.result_text.delete("1.0", "end")
         self.card_pred.configure(text="Hesaplanıyor...")
         self.status_lbl.configure(text="Durum: Hesaplanıyor...", text_color="gray")
-        self.update_idletasks()
+        self.update_idletasks()  # UI'ı zorla güncelle
 
         try:
-            # Tarih al
             if HAS_TKCALENDAR:
                 date = pd.to_datetime(self.date_entry.get_date())
             else:
@@ -221,31 +358,25 @@ class LibTrackApp(ctk.CTk):
 
             date_str = date.strftime("%Y-%m-%d")
             weekday = date.weekday()
-
-            # Slot al
             slot_str = self.slot_combo.get().strip()
             start_hour = int(slot_str.split(":")[0])
             exam_mode = self.exam_var.get()
 
-            # Forecaster Sınıfını Çağır
             best_model, best_pred, best_err, low, high, all_results = self.forecaster.run_best_slot_forecast(
                 self.data_manager.hourly_data, weekday, start_hour, exam_mode
             )
 
-            # UI Güncelleme Hesapları
             perc = 100 * best_pred / self.forecaster.capacity
             perc_low = 100 * low / self.forecaster.capacity
             perc_high = 100 * high / self.forecaster.capacity
 
             status, status_color = self._determine_status(perc)
 
-            # Kartları Doldur
             self.card_pred.configure(text=f"{best_pred:.1f} Kişi")
             self.card_perc.configure(text=f"{perc:.1f}%")
             self.card_interval.configure(text=f"[{low:.1f} - {high:.1f}]")
             self.status_lbl.configure(text=f"Durum: {status}", text_color=status_color)
 
-            # Rapor Metni
             self._write_slot_report(date_str, weekday, slot_str, exam_mode, best_model, best_err, perc_low, perc_high,
                                     all_results)
 
@@ -286,7 +417,6 @@ class LibTrackApp(ctk.CTk):
         self.status_lbl.configure(text="Durum: HATA!", text_color="red")
         self.result_text.insert(tk.END, f"Hata: {msg}")
 
-
     # PROPHET
 
     def setup_prophet_tab(self, parent_frame):
@@ -309,7 +439,6 @@ class LibTrackApp(ctk.CTk):
                                          font=ctk.CTkFont(size=14, weight="bold"), height=30)
         self.btn_prophet.pack(padx=10, pady=10, fill="x")
 
-        # Özet
         self.summary_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
         self.summary_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
         self.summary_frame.grid_columnconfigure((0, 1), weight=1)
@@ -321,7 +450,6 @@ class LibTrackApp(ctk.CTk):
                                           font=ctk.CTkFont(size=14, weight="bold"), anchor="w", text_color="red")
         self.peak_hour_lbl.grid(row=0, column=1, padx=10, pady=5, sticky="w")
 
-        # Sonuç
         result_frame = ctk.CTkFrame(parent_frame)
         result_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="nsew")
         result_frame.grid_columnconfigure(0, weight=1)
@@ -332,6 +460,7 @@ class LibTrackApp(ctk.CTk):
         self.prophet_textbox.configure(state="disabled")
 
     def initial_prophet_run(self):
+        # Arka planda çalıştır (sessizce)
         self.run_prophet_forecast(silent=True)
 
     def run_prophet_forecast(self, silent=False):
@@ -339,18 +468,34 @@ class LibTrackApp(ctk.CTk):
             if not silent: messagebox.showerror("Hata", "Prophet kütüphanesi yüklü değil.")
             return
 
+        # UI'da "Hesaplanıyor" göster
         self.prophet_textbox.configure(state="normal")
         self.prophet_textbox.delete("1.0", "end")
-        self.prophet_textbox.insert("0.0", "Lütfen bekleyin, model hesaplanıyor...")
-        self.update_idletasks()
+        self.prophet_textbox.insert("0.0",
+                                    "Lütfen bekleyin, model hesaplanıyor (Bu işlem 5-10 saniye sürebilir, arayüz donmayacaktır)...")
+        self.prophet_textbox.configure(state="disabled")
 
+        # THREADING: Ağır işi arka plana at
         current_mode = self.prophet_exam_var.get()
+        threading.Thread(target=self._prophet_worker, args=(current_mode, silent), daemon=True).start()
 
+    def _prophet_worker(self, current_mode, silent):
+        """Bu fonksiyon arka planda çalışır, arayüzü dondurmaz"""
         try:
             forecast = self.forecaster.run_prophet_weekly(self.data_manager.hourly_data, current_mode)
         except Exception as e:
+            forecast = str(e)  # Hatayı string olarak taşı
+
+        # Sonucu arayüze basmak için ana thread'e geri dön
+        self.after(0, lambda: self._update_prophet_ui(forecast, silent))
+
+    def _update_prophet_ui(self, forecast, silent):
+        """Bu fonksiyon ana thread'de çalışır ve sonucu ekrana basar"""
+        self.prophet_textbox.configure(state="normal")
+
+        if isinstance(forecast, str):  # Hata mesajı geldiyse
             self.prophet_textbox.delete("1.0", "end")
-            self.prophet_textbox.insert("0.0", f"Hata: {e}")
+            self.prophet_textbox.insert("0.0", f"Hata: {forecast}")
             self.prophet_textbox.configure(state="disabled")
             return
 
@@ -360,16 +505,14 @@ class LibTrackApp(ctk.CTk):
             self.prophet_textbox.configure(state="disabled")
             return
 
-        # Raporlama
+        # Raporlama Mantığı (Aynı kalıyor)
         self._generate_prophet_report(forecast, silent)
 
     def _generate_prophet_report(self, forecast, silent):
-        # Filtreleme
         forecast['hour'] = forecast['ds'].dt.hour
         filtered = forecast[(forecast['hour'] >= 7) & (forecast['hour'] <= 23)]
         gun_adlari = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar']
 
-        # En yoğun an
         if not filtered.empty:
             max_row = filtered.loc[filtered['yhat'].idxmax()]
             self.peak_day_lbl.configure(
@@ -377,7 +520,6 @@ class LibTrackApp(ctk.CTk):
             self.peak_hour_lbl.configure(
                 text=f"🔥 En Yoğun Saat: {max_row['ds'].strftime('%H:00')} ({max_row['yhat']:.1f} Kişi)")
 
-        # Tablo Çizimi
         output = ""
         header = "SAAT | TAHMİN (Kişi) | % DOLULUK | GÜVEN ARALIĞI   | DURUM\n"
         separator = "-----+---------------+-----------+-----------------+---------------\n"
