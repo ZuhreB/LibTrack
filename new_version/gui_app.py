@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox
 import customtkinter as ctk
 import threading
 from ai_assistant import LibraryChatbot
-from config import GOOGLE_API_KEY
+from config import GROQ_API_KEY
 
 try:
     from tkcalendar import DateEntry
@@ -111,11 +111,11 @@ class LibTrackApp(ctk.CTk):
         # LibraryChatbot Başlat
         self.chatbot = LibraryChatbot(
             parent_frame=self.chat_content_frame,
-            api_key=GOOGLE_API_KEY,
+            api_key=GROQ_API_KEY,  # Değişen değişken adı
             db_config=self.data_manager.db_config,
             capacity=self.forecaster.capacity,
-            data_manager=self.data_manager,  # Data manager eklendi
-            forecaster=self.forecaster  # Forecaster eklendi
+            data_manager=self.data_manager,
+            forecaster=self.forecaster
         )
 
         # Toggle Button
