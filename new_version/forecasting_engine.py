@@ -206,13 +206,13 @@ class ForecastingEngine:
         # Logistic (S-eğrisi) büyüme modeli kullan, çünkü doluluk kapasiteye bağlı.
         model = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=True, growth='logistic',
                         seasonality_mode='additive', interval_width=0.95)
-        model.add_regressor('sinav_donemi')  # 'sinav_donemi' değişkenini ek bir etken olarak kullan.
+        model.add_regressor('sinav_donemi')
 
         try:
-            model.fit(df_prophet)  # Modeli veriye eğit.
+            model.fit(df_prophet)
             future = model.make_future_dataframe(periods=168, freq='h',
-                                                 include_history=False)  # Gelecek 168 saat (1 hafta) için tahmin iskeleti oluştur.
-            future['sinav_donemi'] = exam_mode  # Gelecek tahminleri için de sınav dönemi bilgisini ekle.
+                                                 include_history=False)
+            future['sinav_donemi'] = exam_mode
             future['cap'] = self.capacity
             future['floor'] = 0
 
