@@ -3,9 +3,6 @@ import numpy as np
 
 try:
     from prophet import Prophet
-
-    # Prophet kütüphanesi hazır mı? Eğer kurulmadıysa (ImportError verirse)
-    # Prophet'i kullanan fonksiyonları atlamak için bu bayrağı (flag) kullanıyoruz.
     HAS_PROPHET = True
 except ImportError:
     HAS_PROPHET = False
@@ -13,53 +10,39 @@ except ImportError:
 
 class ForecastingEngine:
     def __init__(self, capacity):
-        # Mekanın maksimum kapasitesi, tahminleri bu sınırın üstüne çıkarmamak için lazım.
         self.capacity = capacity
 
     @staticmethod
     def mae(actual, predicted):
-        # Hata ölçüm fonksiyonu: Ortalama Mutlak Hata (Mean Absolute Error - MAE).
-        # Gerçek değer ile tahmin arasındaki farkın mutlak değerini alıp ortalamasını buluyoruz.
-        # Bu değer ne kadar düşükse, model o kadar iyi çalışmıştır.
         actual = pd.Series(actual)
         predicted = pd.Series(predicted, index=actual.index)
         return (actual - predicted).abs().mean()
 
-    # --- Klasik Modeller ---
     def model_moving_average(self, y, window=10):
-        # Basit Hareketli Ortalama (Moving Average - MA).
-        # Son 'window' (mesela 10) verinin ortalamasını alıp, yarının tahmini yapıyoruz.
         y = y.copy()
         if len(y) <= window:
-            # Yeterli veri yoksa, elimizdeki tüm verinin ortalamasını al, geç.
             pred = y.mean()
             preds = pd.Series(pred, index=y.index)
             err = self.mae(y, preds)
         else:
-            # Rolling mean ile pencereyi kaydırarak hataları hesapla.
             preds = y.rolling(window=window).mean()
             valid = preds.dropna()
             err = self.mae(y.loc[valid.index], valid)
-            # Bir sonraki tahminimiz, son geçerli ortalama değerimizdir.
             pred = valid.iloc[-1]
         return pred, err
 
     def model_exponential_smoothing(self, y, alpha=0.3):
-        # Üstel Düzeltme (Exponential Smoothing - ES).
-        # Son verilere daha çok ağırlık veriyoruz. alpha ne kadar yüksekse, son verinin etkisi o kadar çoktur.
         y = y.copy().reset_index(drop=True)
-        s = [y.iloc[0]]  # Düzeltilmiş (Smoothed) seriyi tutacak liste. İlk değer başlangıç.
+        s = [y.iloc[0]]
         preds = [y.iloc[0]]
         for i in range(1, len(y)):
-            # Formül: Yeni Düzeltilmiş Değer = (alpha * Yeni Gözlem) + (1-alpha * Eski Düzeltilmiş Değer)
             s.append(alpha * y.iloc[i] + (1 - alpha) * s[i - 1])
-            preds.append(s[i - 1])  # Tahmin, bir önceki adımdaki düzeltilmiş değerdir.
+            preds.append(s[i - 1])
 
         s = pd.Series(s, index=y.index)
         preds = pd.Series(preds, index=y.index)
         err = self.mae(y, preds)
 
-        # Gelecek tahminimiz, serinin son düzeltilmiş değeridir.
         pred_next = s.iloc[-1]
         return pred_next, err
 
@@ -75,7 +58,7 @@ class ForecastingEngine:
         L0 = y.iloc[:m].mean()
         T0 = (y.iloc[m:2 * m].mean() - y.iloc[:m].mean()) / m if n >= 2 * m else (
                 y.iloc[1] - y.iloc[0]) if n > 1 else 0.0
-        S = [y.iloc[i] - L0 for i in range(m)]  # İlk periyottaki sapmaları S'ye at.
+        S = [y.iloc[i] - L0 for i in range(m)]
         L, T, fitted = [L0], [T0], [L0 + T0 + S[0]]
 
         for t in range(1, n):
@@ -189,39 +172,43 @@ class ForecastingEngine:
 
         return best_model, best_pred, best_err, interval_low, interval_high, results
 
-    def run_prophet_weekly(self, hourly_df, exam_mode):
-        """Prophet kütüphanesi ile haftalık tahmin üretir. Bu kod, ayrı bir gelişmiş tahmin katmanı."""
-        if not HAS_PROPHET: return None  # Prophet yoksa pas geç.
+    def run_prophet_weekly(self, hourly_df, exam_mode, target_start_date=None):
 
-        # Veriyi filtrele ve Prophet'in istediği formata (ds: tarih, y: değer) çevir.
+        if not HAS_PROPHET: return None
+
         df_full = hourly_df[hourly_df["sinav_donemi"] == exam_mode].copy()
-        if len(df_full) < 1000: return None  # Yeterli veri yoksa Prophet'i çalıştırma.
+        if len(df_full) < 100: return None
 
         df_prophet = df_full.rename(columns={'datetime': 'ds', 'saatlik_ortalama_doluluk': 'y'})[
             ['ds', 'y', 'sinav_donemi']].sort_values(by='ds').copy()
-        df_prophet['cap'] = self.capacity  # Kapasite (üst sınır) ve alt sınır (floor) ekle.
+        df_prophet['cap'] = self.capacity
         df_prophet['floor'] = 0
 
-        # Prophet modeli ayarları: Yıllık, haftalık, günlük mevsimsellikleri dikkate al.
-        # Logistic (S-eğrisi) büyüme modeli kullan, çünkü doluluk kapasiteye bağlı.
         model = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=True, growth='logistic',
                         seasonality_mode='additive', interval_width=0.95)
         model.add_regressor('sinav_donemi')
 
         try:
             model.fit(df_prophet)
-            future = model.make_future_dataframe(periods=168, freq='h',
-                                                 include_history=False)
+
+
+            if target_start_date:
+                future_dates = pd.date_range(start=target_start_date, periods=168, freq='h')
+                future = pd.DataFrame({'ds': future_dates})
+            else:
+                future = model.make_future_dataframe(periods=168, freq='h', include_history=False)
+
             future['sinav_donemi'] = exam_mode
             future['cap'] = self.capacity
             future['floor'] = 0
 
-            forecast = model.predict(future)  # Tahminleri yap.
-            # Tahminleri Kapasite sınırları içinde tut.
+            forecast = model.predict(future)
+
             for col in ['yhat', 'yhat_lower', 'yhat_upper']:
                 forecast[col] = forecast[col].apply(lambda x: max(0, min(x, self.capacity)))
 
-            return forecast[
-                ['ds', 'yhat', 'yhat_lower', 'yhat_upper']]  # Sadece tahmin sonucu ve güven aralıklarını döndür.
-        except Exception:
+            return forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+
+        except Exception as e:
+            print(f"Prophet Hatası: {e}")
             return None

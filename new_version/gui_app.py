@@ -3,60 +3,47 @@ import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
 import threading
+from datetime import datetime, timedelta
 import re
 from datetime import datetime
 
-# --- GRAFİK İÇİN GEREKLİ IMPORTLAR (BUNLAR EKSİKTİ) ---
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 import mplcursors
-# -----------------------------------------------------
 
 from ai_assistant import LibraryChatbot
 from config import GROQ_API_KEY
 
-# Check for Calendar Library
 try:
     from tkcalendar import DateEntry
-
     HAS_TKCALENDAR = True
 except ImportError:
     HAS_TKCALENDAR = False
 
-# Check for Prophet Library
 try:
     from prophet import Prophet
-
     HAS_PROPHET = True
 except ImportError:
     HAS_PROPHET = False
 
-# --- VISUAL SETTINGS ---
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
-
 
 class LibTrackApp(ctk.CTk):
     def __init__(self, data_manager, forecasting_engine):
         super().__init__()
 
-        # --- Backend Connections ---
         self.data_manager = data_manager
         self.forecaster = forecasting_engine
 
-        # --- Window Settings ---
         self.title("LibTrack AI - Smart Library System")
         self.geometry("1200x800")
 
-        # Map light references
         self.lights_masa_a = []
         self.lights_masa_b = []
-
-        # Chat state
         self.is_chat_open = False
 
-        # Main Grid Structure
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -64,25 +51,20 @@ class LibTrackApp(ctk.CTk):
         self._init_pages()
         self._init_floating_chat()
 
-        # Start Page
         self.select_frame("dashboard")
 
-        # Initialize Data
         self.update_live_occupancy(initial_run=True)
         self.initial_prophet_run()
 
     def _init_sidebar(self):
-        """Modern navigation menu on the left"""
         self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(4, weight=1)
 
-        # Logo / Title
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="LibTrack AI",
                                        font=ctk.CTkFont(size=22, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
-        # Menu Buttons
         self.btn_dashboard = self._create_sidebar_button("📊 Live Monitor", lambda: self.select_frame("dashboard"))
         self.btn_dashboard.grid(row=1, column=0, padx=20, pady=10)
 
@@ -92,7 +74,6 @@ class LibTrackApp(ctk.CTk):
         self.btn_weekly = self._create_sidebar_button("📅 Weekly Analysis", lambda: self.select_frame("weekly"))
         self.btn_weekly.grid(row=3, column=0, padx=20, pady=10)
 
-        # Footer Info
         self.lbl_version = ctk.CTkLabel(self.sidebar_frame, text="v2.5 Stable", text_color="gray50")
         self.lbl_version.grid(row=5, column=0, padx=20, pady=20)
 
@@ -135,33 +116,25 @@ class LibTrackApp(ctk.CTk):
             self.page_weekly.grid(row=0, column=0, sticky="nsew")
             self.btn_weekly.configure(fg_color=("gray75", "gray25"))
 
-    # ==========================================
-    # 1. DASHBOARD
-    # ==========================================
+    # --- DASHBOARD ---
     def _setup_dashboard_ui(self, parent):
         parent.grid_columnconfigure((0, 1), weight=1)
         parent.grid_rowconfigure(2, weight=1)
         parent.grid_rowconfigure(3, weight=0)
 
-        ctk.CTkLabel(parent, text="Live Library Status", font=ctk.CTkFont(size=24, weight="bold")).grid(row=0, column=0,
-                                                                                                        columnspan=2,
-                                                                                                        sticky="w",
-                                                                                                        pady=(0, 10))
+        ctk.CTkLabel(parent, text="Live Library Status", font=ctk.CTkFont(size=24, weight="bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         metrics_frame = ctk.CTkFrame(parent, fg_color="transparent")
         metrics_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         metrics_frame.grid_columnconfigure((0, 1), weight=1)
 
-        self.card_total = self._create_metric_card(metrics_frame, "Current Occupancy", "...", row=0, col=0,
-                                                   color="#2CC985")
-        self.card_occupancy = self._create_metric_card(metrics_frame, "Occupancy Rate", "%...", row=0, col=1,
-                                                       color="#3B8ED0")
+        self.card_total = self._create_metric_card(metrics_frame, "Current Occupancy", "...", row=0, col=0, color="#2CC985")
+        self.card_occupancy = self._create_metric_card(metrics_frame, "Occupancy Rate", "%...", row=0, col=1, color="#3B8ED0")
 
         map_frame = ctk.CTkFrame(parent, corner_radius=15)
         map_frame.grid(row=2, column=0, columnspan=2, sticky="nsew")
 
-        ctk.CTkLabel(map_frame, text="📍 Floor Plan & Heatmap", font=ctk.CTkFont(size=16, weight="bold")).pack(
-            pady=(10, 5))
+        ctk.CTkLabel(map_frame, text="📍 Floor Plan & Heatmap", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(10, 5))
 
         self.map_canvas = tk.Canvas(map_frame, width=600, height=220, bg="#2B2B2B", highlightthickness=0)
         self.map_canvas.pack(pady=5, fill="both", expand=True)
@@ -174,8 +147,7 @@ class LibTrackApp(ctk.CTk):
         self.btn_refresh.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
     def _create_metric_card(self, parent, title, value, row, col, color):
-        card = ctk.CTkFrame(parent,
-                            fg_color=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"]))
+        card = ctk.CTkFrame(parent, fg_color=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"]))
         card.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
 
         strip = ctk.CTkFrame(card, width=10, fg_color=color, corner_radius=5)
@@ -199,22 +171,17 @@ class LibTrackApp(ctk.CTk):
             self.map_canvas.create_line(0, i, 800, i, fill="#333333")
 
         offset_y = -20
-
         # TABLE A
         self.map_canvas.create_rectangle(55, 65 + offset_y, 255, 205 + offset_y, fill="#1a1a1a", outline="")
-        self.map_canvas.create_rectangle(50, 60 + offset_y, 250, 200 + offset_y, fill="#404040", outline="#505050",
-                                         width=2)
-        self.map_canvas.create_text(150, 130 + offset_y, text="TABLE A\n(Cam 0)", fill="white",
-                                    font=("Arial", 12, "bold"))
+        self.map_canvas.create_rectangle(50, 60 + offset_y, 250, 200 + offset_y, fill="#404040", outline="#505050", width=2)
+        self.map_canvas.create_text(150, 130 + offset_y, text="TABLE A\n(Cam 0)", fill="white", font=("Arial", 12, "bold"))
         glow_a = self.map_canvas.create_oval(140, 70 + offset_y, 160, 90 + offset_y, fill="#222", outline="gray")
         self.lights_masa_a.append(glow_a)
 
         # TABLE B
         self.map_canvas.create_rectangle(305, 65 + offset_y, 505, 205 + offset_y, fill="#1a1a1a", outline="")
-        self.map_canvas.create_rectangle(300, 60 + offset_y, 500, 200 + offset_y, fill="#404040", outline="#505050",
-                                         width=2)
-        self.map_canvas.create_text(400, 130 + offset_y, text="TABLE B\n(IP Cam)", fill="white",
-                                    font=("Arial", 12, "bold"))
+        self.map_canvas.create_rectangle(300, 60 + offset_y, 500, 200 + offset_y, fill="#404040", outline="#505050", width=2)
+        self.map_canvas.create_text(400, 130 + offset_y, text="TABLE B\n(IP Cam)", fill="white", font=("Arial", 12, "bold"))
         glow_b = self.map_canvas.create_oval(390, 70 + offset_y, 410, 90 + offset_y, fill="#222", outline="gray")
         self.lights_masa_b.append(glow_b)
 
@@ -253,64 +220,51 @@ class LibTrackApp(ctk.CTk):
 
             if not initial_run:
                 self.btn_refresh.configure(text="✅ Updated", fg_color="green")
-                self.after(2000, lambda: self.btn_refresh.configure(text="🔄 Update Data Now",
-                                                                    fg_color=["#3B8ED0", "#1F6AA5"]))
+                self.after(2000, lambda: self.btn_refresh.configure(text="🔄 Update Data Now", fg_color=["#3B8ED0", "#1F6AA5"]))
         else:
             self.card_total.configure(text="ERROR", text_color="red")
 
-    # ==========================================
-    # 2. SLOT FORECAST
-    # ==========================================
+    # --- SLOT FORECAST ---
     def _setup_slot_ui(self, parent):
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(2, weight=1)
 
-        ctk.CTkLabel(parent, text="Future Slot Forecast", font=ctk.CTkFont(size=24, weight="bold")).grid(row=0,
-                                                                                                         column=0,
-                                                                                                         sticky="w",
-                                                                                                         pady=10)
+        ctk.CTkLabel(parent, text="Future Slot Forecast", font=ctk.CTkFont(size=24, weight="bold")).grid(row=0, column=0, sticky="w", pady=10)
 
-        # Input Panel
         input_frame = ctk.CTkFrame(parent)
         input_frame.grid(row=1, column=0, sticky="ew", pady=10)
 
-        # 1. Date
-        ctk.CTkLabel(input_frame, text="Select Date:", font=("Arial", 12, "bold")).grid(row=0, column=0, padx=15,
-                                                                                        pady=15, sticky="w")
+        ctk.CTkLabel(input_frame, text="Select Date:", font=("Arial", 12, "bold")).grid(row=0, column=0, padx=15, pady=15, sticky="w")
 
         if HAS_TKCALENDAR:
-            self.date_entry_container = ctk.CTkFrame(input_frame, fg_color="transparent")
-            self.date_entry_container.grid(row=0, column=1, padx=10, sticky="w")
+            self.date_container = tk.Frame(input_frame, bg="#333333", highlightthickness=1, highlightbackground="gray40")
+            self.date_container.grid(row=0, column=1, padx=10, sticky="w")
 
-            self.date_entry = DateEntry(self.date_entry_container, width=12,
-                                        background='#1F6AA5', foreground='white', borderwidth=2,
+            self.date_entry = DateEntry(self.date_container, width=12,
+                                        background='#1F6AA5', foreground='white',
+                                        borderwidth=2, font=("Arial", 11),
                                         date_pattern='yyyy-mm-dd', headersbackground="#144f7d",
-                                        normalbackground="#333333", normalforeground="white")
-            self.date_entry.pack()
+                                        selectbackground="#1F6AA5", cursor="hand2")
+            self.date_entry.pack(padx=2, pady=2)
+            self.date_entry.bind("<Button-1>", lambda e: self.date_entry.drop_down())
         else:
-            # Fallback
             self.date_entry = ctk.CTkEntry(input_frame, placeholder_text="YYYY-MM-DD")
             self.date_entry.grid(row=0, column=1, padx=10, sticky="ew")
 
-        # 2. Slot
-        ctk.CTkLabel(input_frame, text="Time Slot:", font=("Arial", 12, "bold")).grid(row=0, column=2, padx=15,
-                                                                                      sticky="w")
+        ctk.CTkLabel(input_frame, text="Time Slot:", font=("Arial", 12, "bold")).grid(row=0, column=2, padx=15, sticky="w")
         slots = [f"{h:02d}:00-{h + 1:02d}:00" for h in range(8, 23)]
-        self.slot_combo = ctk.CTkComboBox(input_frame, values=slots)
+        self.slot_combo = ctk.CTkComboBox(input_frame, values=slots, width=150)
         self.slot_combo.set(slots[4])
         self.slot_combo.grid(row=0, column=3, padx=10, sticky="ew")
 
-        # 3. Checkbox
         self.exam_var = tk.IntVar(value=0)
         self.exam_check = ctk.CTkSwitch(input_frame, text="Exam Period Mode", variable=self.exam_var)
         self.exam_check.grid(row=1, column=0, columnspan=2, padx=15, pady=15, sticky="w")
 
-        # Button
         self.btn_forecast = ctk.CTkButton(input_frame, text="🚀 Start Analysis", command=self.make_slot_forecast,
-                                          height=40)
+                                          height=40, font=("Arial", 13, "bold"))
         self.btn_forecast.grid(row=1, column=2, columnspan=2, padx=15, pady=15, sticky="ew")
 
-        # Result Area
         result_frame = ctk.CTkFrame(parent, fg_color="#1e1e1e")
         result_frame.grid(row=2, column=0, sticky="nsew", pady=10)
         result_frame.grid_rowconfigure(0, weight=1)
@@ -343,7 +297,6 @@ class LibTrackApp(ctk.CTk):
             best_model, best_pred, best_err, low, high, all_results = self.forecaster.run_best_slot_forecast(
                 self.data_manager.hourly_data, weekday, start_hour, exam_mode
             )
-
             perc = 100 * best_pred / self.forecaster.capacity
 
             report = f"\n=== RESULT REPORT ===\n"
@@ -367,40 +320,29 @@ class LibTrackApp(ctk.CTk):
         finally:
             self.result_text.configure(state="disabled")
 
-    # ==========================================
-    # 3. WEEKLY (PROPHET - GRAFİK + RAPOR)
-    # ==========================================
+    # --- WEEKLY ANALYSIS ---
     def _setup_weekly_ui(self, parent):
-        # Grid ayarı: Sol taraf (Metin) dar, Sağ taraf (Grafik) geniş
-        parent.grid_columnconfigure(0, weight=1)  # Metin alanı
-        parent.grid_columnconfigure(1, weight=2)  # Grafik alanı
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_columnconfigure(1, weight=2)
         parent.grid_rowconfigure(1, weight=1)
 
-        # --- ÜST PANEL (Header) ---
         head_frame = ctk.CTkFrame(parent, fg_color="transparent")
         head_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
-        ctk.CTkLabel(head_frame, text="Weekly AI Analysis (Prophet)", font=ctk.CTkFont(size=20, weight="bold")).pack(
-            side="left")
+        ctk.CTkLabel(head_frame, text="Weekly AI Analysis (Prophet)", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
 
         self.prophet_exam_var = tk.IntVar(value=0)
-        ctk.CTkSwitch(head_frame, text="Train with Exam Data", variable=self.prophet_exam_var).pack(side="right",
-                                                                                                    padx=10)
+        ctk.CTkSwitch(head_frame, text="Train with Exam Data", variable=self.prophet_exam_var).pack(side="right", padx=10)
+        ctk.CTkButton(head_frame, text="♻️ Update Analysis", command=self.run_prophet_forecast, width=150).pack(side="right")
 
-        ctk.CTkButton(head_frame, text="♻️ Update Analysis", command=self.run_prophet_forecast, width=150).pack(
-            side="right")
-
-        # --- SOL PANEL: METİN RAPORU ---
         self.prophet_textbox = ctk.CTkTextbox(parent, font=("Consolas", 11))
         self.prophet_textbox.grid(row=1, column=0, sticky="nsew", padx=(0, 5))
         self.prophet_textbox.insert("0.0", "Waiting for analysis...")
         self.prophet_textbox.configure(state="disabled")
 
-        # --- SAĞ PANEL: GRAFİK ALANI ---
-        self.chart_frame = ctk.CTkFrame(parent, fg_color="#2b2b2b")  # Grafik arka planı
+        self.chart_frame = ctk.CTkFrame(parent, fg_color="#2b2b2b")
         self.chart_frame.grid(row=1, column=1, sticky="nsew")
 
-        # Grafik placeholder (Boşken ne görünsün)
         self.lbl_chart_placeholder = ctk.CTkLabel(self.chart_frame, text="Chart will appear here...", text_color="gray")
         self.lbl_chart_placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -412,7 +354,6 @@ class LibTrackApp(ctk.CTk):
             if not silent: messagebox.showerror("Error", "Prophet library not found.")
             return
 
-        # UI Güncelleme (Yükleniyor...)
         self.prophet_textbox.configure(state="normal")
         self.prophet_textbox.delete("1.0", "end")
         self.prophet_textbox.insert("0.0", "Computing AI Model...\nPlease wait.")
@@ -423,36 +364,59 @@ class LibTrackApp(ctk.CTk):
 
     def _prophet_worker(self, mode, silent):
         try:
-            # Tahmin hesapla
-            forecast = self.forecaster.run_prophet_weekly(self.data_manager.hourly_data, mode)
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            forecast = self.forecaster.run_prophet_weekly(
+                self.data_manager.hourly_data,
+                mode,
+                target_start_date=now
+            )
         except Exception as e:
             forecast = str(e)
-
-        # Sonucu ana thread'e gönder
         self.after(0, lambda: self._update_prophet_ui(forecast, silent))
 
     def _update_prophet_ui(self, forecast, silent):
         self.prophet_textbox.configure(state="normal")
         self.prophet_textbox.delete("1.0", "end")
 
-        # Hata Kontrolü
         if isinstance(forecast, str) or forecast is None:
             self.prophet_textbox.insert("0.0", f"Analysis Failed.\nDetail: {forecast}")
             self.prophet_textbox.configure(state="disabled")
             return
 
-        # --- VERİ HAZIRLIĞI ---
         forecast['hour'] = forecast['ds'].dt.hour
-        # Sadece kütüphane saatlerini al (08:00 - 22:00 arası) grafik daha temiz olsun
-        filtered = forecast[(forecast['hour'] >= 8) & (forecast['hour'] <= 22)].copy()
+        now = datetime.now()
 
-        # 1. SOL TARAF: METİN RAPORU YAZDIRMA
+        if now.hour >= 20:
+            target_date = now.date() + timedelta(days=1)
+            date_label = "Tomorrow"
+        else:
+            target_date = now.date()
+            date_label = "Today"
+
+        # Hedef tarihe göre veriyi filtrele
+        daily_forecast = forecast[forecast['ds'].dt.date == target_date].copy()
+
+        if not daily_forecast.empty:
+            # Grafik için kütüphane çalışma saatlerini (08:00 - 22:00) filtrele
+            filtered_for_chart = daily_forecast[(daily_forecast['hour'] >= 8) & (daily_forecast['hour'] <= 22)].copy()
+            display_date_str = target_date.strftime(f'%Y-%m-%d ({date_label})')
+        else:
+            # Eğer yarın için veri yoksa (çok nadir ama), eldeki en yakın veriyi göster
+            earliest_date = forecast['ds'].dt.date.min()
+            daily_forecast = forecast[forecast['ds'].dt.date == earliest_date].copy()
+            filtered_for_chart = daily_forecast[(daily_forecast['hour'] >= 8) & (daily_forecast['hour'] <= 22)].copy()
+            display_date_str = earliest_date.strftime('%Y-%m-%d (Earliest Forecast)')
+
+        # --- GÜNCELLEME BİTİŞİ ---
+
+        # Textbox tablosu için haftalık veriyi hazırla
+        weekly_filtered = forecast[(forecast['hour'] >= 8) & (forecast['hour'] <= 22)].copy()
         output = f"{'DAY':<10} | {'HOUR':<5} | {'PRED':<6} | {'%':<4}\n"
         output += "-" * 40 + "\n"
-
         days_en = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-        for index, row in filtered.iterrows():
+        # Tabloyu doldur (Burada bir değişiklik yok)
+        for index, row in weekly_filtered.iterrows():
             d_name = days_en[row['ds'].weekday()]
             h_str = row['ds'].strftime('%H:%M')
             val = row['yhat']
@@ -462,66 +426,48 @@ class LibTrackApp(ctk.CTk):
         self.prophet_textbox.insert("0.0", output)
         self.prophet_textbox.configure(state="disabled")
 
-        # 2. SAĞ TARAF: GRAFİK ÇİZİMİ (Matplotlib)
-        self._draw_prophet_chart(filtered)
+        # Grafiği çiz
+        self._draw_prophet_chart(filtered_for_chart, display_date_str)
 
-        if not silent: messagebox.showinfo("Completed", "Weekly analysis & chart updated.")
-
-    def _draw_prophet_chart(self, df):
-        # Önce eski grafik varsa temizle
+        if not silent:
+            # Kullanıcıya hangi günü gösterdiğimizi söyleyelim
+            messagebox.showinfo("Completed", f"Analysis updated.\nShowing chart for: {date_label}")
+    def _draw_prophet_chart(self, df, title_date):
         for widget in self.chart_frame.winfo_children():
             widget.destroy()
 
-        # Dark Mode Uyumlu Grafik Ayarları
-        plt.style.use('dark_background')  # Matplotlib dark tema
+        plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
-        fig.patch.set_facecolor('#2b2b2b')  # Dış çerçeve rengi (CustomTkinter ile uyumlu)
-        ax.set_facecolor('#1e1e1e')  # Grafik iç rengi
+        fig.patch.set_facecolor('#2b2b2b')
+        ax.set_facecolor('#1e1e1e')
 
-        # Çizim
         line, = ax.plot(df['ds'], df['yhat'], color='#00ffcc', linewidth=2, label='Prediction')
+        ax.fill_between(df['ds'], df['yhat_lower'], df['yhat_upper'], color='#00ffcc', alpha=0.2)
 
-        # Güven Aralığı (Gölge)
-        ax.fill_between(df['ds'], df['yhat_lower'], df['yhat_upper'], color='#00ffcc', alpha=0.2,
-                        label='Confidence Interval')
-
-        # Eksen Ayarları
-        ax.set_title("Weekly Occupancy Forecast", color="white", fontsize=12, pad=10)
+        ax.set_title(f"Occupancy Forecast: {title_date}", color="white", fontsize=12, pad=10)
         ax.set_ylabel("Person Count", color="gray")
         ax.grid(True, linestyle='--', alpha=0.3, color='gray')
 
-        # X Ekseni tarih formatı
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.xticks(rotation=0, fontsize=9, color='silver')
+        plt.yticks(fontsize=9, color='silver')
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %H:%M'))
-        plt.xticks(rotation=45, fontsize=8, color='silver')
-        plt.yticks(fontsize=8, color='silver')
-
-        # --- HOVER (ÜZERİNE GELİNCE GÖSTERME) ---
         cursor = mplcursors.cursor(line, hover=True)
-
         @cursor.connect("add")
         def on_add(sel):
-            # Mouse grafiğin neresindeyse oradaki veriyi al
             x, y = sel.target
-            # Tarihi geri dönüştür (Matplotlib tarihleri float tutar)
             date_obj = mdates.num2date(x)
-            # Tooltip metni
-            sel.annotation.set_text(f"{date_obj.strftime('%A %H:%M')}\n👥 {y:.0f} People")
-            # Tooltip stili
+            sel.annotation.set_text(f"Time: {date_obj.strftime('%H:%M')}\n👥 {y:.0f} People")
             sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)
             sel.annotation.set_color("black")
 
-        # Grafiği Tkinter'a Gömme
         canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
 
-    # ==========================================
-    # 4. CHATBOT
-    # ==========================================
+    # --- CHATBOT ---
     def _init_floating_chat(self):
-        self.chat_window = ctk.CTkFrame(self, width=400, height=500, corner_radius=20, border_width=1,
-                                        border_color="gray30")
+        self.chat_window = ctk.CTkFrame(self, width=400, height=500, corner_radius=20, border_width=1, border_color="gray30")
         self.chat_window.grid_propagate(False)
         self.chat_window.grid_columnconfigure(0, weight=1)
         self.chat_window.grid_rowconfigure(1, weight=1)
@@ -529,10 +475,8 @@ class LibTrackApp(ctk.CTk):
         header = ctk.CTkFrame(self.chat_window, height=50, corner_radius=15, fg_color="#1F6AA5")
         header.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
 
-        ctk.CTkLabel(header, text="🤖 AI Assistant", font=("Arial", 16, "bold"), text_color="white").pack(side="left",
-                                                                                                         padx=15)
-        ctk.CTkButton(header, text="✕", width=30, fg_color="transparent", text_color="white",
-                      command=self.toggle_chat).pack(side="right", padx=5)
+        ctk.CTkLabel(header, text="🤖 AI Assistant", font=("Arial", 16, "bold"), text_color="white").pack(side="left", padx=15)
+        ctk.CTkButton(header, text="✕", width=30, fg_color="transparent", text_color="white", command=self.toggle_chat).pack(side="right", padx=5)
 
         chat_body = ctk.CTkFrame(self.chat_window, fg_color="transparent")
         chat_body.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
@@ -560,7 +504,6 @@ class LibTrackApp(ctk.CTk):
             self.btn_chat_toggle.configure(text="🔽")
             self.chat_window.lift()
         self.is_chat_open = not self.is_chat_open
-
 
 if __name__ == "__main__":
     print("Please run main.py")

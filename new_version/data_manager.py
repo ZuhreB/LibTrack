@@ -35,10 +35,6 @@ class LibraryDataManager:
         self.max_date = self.hourly_data["date"].max().date()
 
     def fetch_live_occupancy(self):
-        """
-        Veritabanından her bir kameranın EN SON gönderdiği veriyi çeker.
-        Dönüş formatı (Örnek): {'0': 1, 'http://...': 0}
-        """
         if not HAS_MYSQL_CONNECTOR:
             return "Bağlantı Hatası"
 
@@ -57,7 +53,7 @@ class LibraryDataManager:
                 )
             """
             cursor.execute(query)
-            results = cursor.fetchall() # Liste döner: [('0', 1), ('http://...', 0)]
+            results = cursor.fetchall() # Liste döner:
 
             cursor.close()
             connection.close()

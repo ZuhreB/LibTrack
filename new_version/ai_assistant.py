@@ -233,9 +233,15 @@ class LibraryChatbot:
 
     def _preload_forecast(self):
         try:
-            df = self.forecaster.run_prophet_weekly(self.data_manager.hourly_data, exam_mode=0)
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            df = self.forecaster.run_prophet_weekly(
+                self.data_manager.hourly_data,
+                exam_mode=0,
+                target_start_date=now
+            )
             if df is not None: self.forecast_cache = df
-        except: pass
+        except:
+            pass
 
     def _re_enable_input(self):
         self.input_entry.configure(state="normal")
@@ -247,9 +253,16 @@ class LibraryChatbot:
 
     def _append_message_gui(self, sender, message):
         self.history_box.configure(state="normal")
-        # Sender etiketlerini kontrol et (You, System, Assistant)
         tag = "user" if sender == "You" else ("sys" if sender == "System" else "ai")
-        color = "blue" if tag == "user" else ("red" if tag == "sys" else "green")
+
+        if tag == "user":
+            color = "white"
+        elif tag == "sys":
+            color = "#FF6B6B"
+        else:
+            color = "#69F0AE"
         self.history_box.tag_config(tag, foreground=color)
+
         self.history_box.insert("end", f"\n[{datetime.now().strftime('%H:%M')}] {sender.upper()}:\n{message}\n", tag)
-        self.history_box.see("end"); self.history_box.configure(state="disabled")
+        self.history_box.see("end")
+        self.history_box.configure(state="disabled")
